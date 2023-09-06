@@ -1,0 +1,210 @@
+#pip install azure-storage-blob
+
+import requests
+import json
+from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient, __version__
+from datetime import datetime
+datetime = datetime.now().strftime("%Y_%m_%d_%I:%M:%S")
+
+
+# from google.colab import drive
+# drive.mount('/content/drive')
+#!pip install google-api-python-client
+from googleapiclient.discovery import build
+import pandas as pd
+
+#defined api
+def API_connect():
+    API_key = 'REPLACE THIS WITH API KEY'
+
+    api_service_name = "youtube" #API service name
+    api_version = "v3" #API version
+    youtube = build(api_service_name, api_version, developerKey=API_key) #API object
+    return youtube
+
+youtube=API_connect()
+
+#Getting channel details
+Channel_name = input("Enter channel name: ")
+request = youtube.search().list(
+        part="id,snippet",
+        channelType="any",
+        maxResults=1,
+        q=Channel_name,
+    )
+response = request.execute()
+
+#response
+
+channel_id = response["items"][0]["id"]['channelId']
+Channel_name = response["items"][0]["snippet"]["title"]
+
+
+#print('Channel_name', Channel_name)
+#print('Channel_id', channel_id)
+
+#API object
+
+#Get channel id
+#channel_id = input("Enter channel id: ")
+request = youtube.channels().list(
+        part="snippet,contentDetails,statistics",
+        id=channel_id)
+response = request.execute()
+#response
+
+channel_id = response["items"][0]["id"]
+Channel_name = response["items"][0]["snippet"]["title"]
+Channel_description = response["items"][0]["snippet"]["description"]
+Channel_subscribers = response["items"][0]["statistics"]["subscriberCount"]
+Channel_view_Count = response["items"][0]["statistics"]["viewCount"]
+channel_Video_Count = response["items"][0]["statistics"]["videoCount"]
+Channel_Published_Date = response["items"][0]["snippet"]["publishedAt"]
+Playlist_id = response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+#Take Channel id, channel name and channel description, channel subscriber count, channel view count, channel video count, channel published date, upload playlist
+# print('Channel_name :', Channel_name)
+# print('Channel_id :', channel_id)
+# print('Channel_description :', Channel_description)
+# print('Channel_subscribers :', Channel_subscribers)
+# print('Channel_view_Count :', Channel_view_Count)
+# print('channel_Video_Count :', channel_Video_Count)
+# print('Channel_Published_Date :', Channel_Published_Date)
+# print('Playlist_id :', Playlist_id)
+
+ChannelDetails = pd.DataFrame({
+    "Channel_id": channel_id,
+    "Channel_name": Channel_name,
+    "Channel_description": Channel_description,
+    "Channel_subscribers": Channel_subscribers,
+    "Channel_view_Count": Channel_view_Count,
+    "channel_Video_Count": channel_Video_Count,
+    "Channel_Published_Date": Channel_Published_Date,
+    "Playlist_id": Playlist_id
+    }, index=[0])
+# ChannelDetails
+
+#Get video id from playlist id
+playlist_id = Playlist_id
+request = youtube.playlistItems().list(
+        part="snippet,contentDetails",
+        playlistId=playlist_id,
+        maxResults=50
+    )
+response = request.execute()
+
+Video_id = []
+for item in response['items']:
+    video_id = item['contentDetails']['videoId']
+    #print(video_id)
+    Video_id.append(video_id)
+
+#print("Number of videos in playlist:", len(Video_id))
+
+#we need to get video id from playlist id for next page
+
+video_ids = []                                          #list of video id
+
+request = youtube.playlistItems().list(
+    part="snippet,contentDetails",
+    playlistId=playlist_id,
+    maxResults=50
+)
+response = request.execute()
+
+for item in response['items']:                            #loop to get video id
+    video_ids.append(item['contentDetails']['videoId'])
+
+next_page_token = response.get('nextPageToken')           #get next page
+while next_page_token is not None:                        #loop to get video id
+    request = youtube.playlistItems().list(
+        part='contentDetails',
+        playlistId=playlist_id,
+        maxResults=50,
+        pageToken=next_page_token)
+    response = request.execute()
+
+    for item in response['items']:
+        video_ids.append(item['contentDetails']['videoId']) #append video id
+
+#print("Number of videos in playlist:", len(video_ids))    #print number of videos
+
+#Get video details
+def get_video_details(youtube, video_ids):
+    all_video_info = []
+
+    for i in range(0, len(video_ids), 50):
+        request = youtube.videos().list(
+            part="snippet,contentDetails,statistics",
+            id=','.join(video_ids[i:i + 50])
+        )
+        response = request.execute()
+
+        for video in response['items']:
+            stats_to_keep = {'snippet': ['channelTitle', 'title', 'description', 'publishedAt'],
+                             'statistics': ['viewCount', 'likeCount', 'commentCount']
+                             }
+            video_info = {}
+            video_info['video_id'] = video['id']
+
+            for k in stats_to_keep.keys():
+                for v in stats_to_keep[k]:
+                    try:
+                        video_info[v] = video[k][v]
+                    except:
+                        video_info[v] = None
+
+            all_video_info.append(video_info)
+
+    return all_video_info
+
+videos=get_video_details(youtube, video_ids)
+#videos
+
+videos_df = pd.DataFrame(videos)
+#videos_df
+
+#Channel_subscribers to int
+ChannelDetails["Channel_subscribers"] = ChannelDetails["Channel_subscribers"].astype(int)
+#Channel_view_Count to int
+ChannelDetails["Channel_view_Count"] = ChannelDetails["Channel_view_Count"].astype(int)
+#Channel_Published_Date to datetime
+ChannelDetails["Channel_Published_Date"] = pd.to_datetime(ChannelDetails["Channel_Published_Date"])
+#Channel_video_Count to int
+ChannelDetails["channel_Video_Count"] = ChannelDetails["channel_Video_Count"].astype(int)
+#ChannelDetails.info()
+
+#publish date is in string format to convert to datetime
+videos_df['publishedAt'] = pd.to_datetime(videos_df['publishedAt'])
+
+
+#view count is in string format to convert to int
+videos_df['viewCount'] = videos_df['viewCount'].astype(int)
+
+#like count is in string format to convert to int
+videos_df['likeCount'] = videos_df['likeCount'].astype(int)
+
+#comment count is in string format to convert to int
+videos_df['commentCount'] = videos_df['commentCount'].astype(int)
+#videos_df.info()
+
+# video published date to year , month
+videos_df['publishedAt'] = pd.to_datetime(videos_df['publishedAt'])
+videos_df['Published_Year'] = videos_df['publishedAt'].dt.year
+videos_df['Published_Month'] = videos_df['publishedAt'].dt.month.map({1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'})
+
+json_channeldetails = ChannelDetails.to_json(orient='records')
+json_videos_df = videos_df.to_json(orient='records')
+
+conn_string="DefaultEndpointsProtocol=https;AccountName=snowpipeaccount143s;AccountKey=GroUhihGTHYk49B9K0GTqwEanUM/3Mc/CBst9kDtvsH0DDFhP2k5NMH3JoxlAszUQBjDNMbwm+eA+AStqK5rEA==;EndpointSuffix=core.windows.net"
+
+def main():
+    #json_response = connect_to_endpoint(search_url, query_params)
+    container_client = ContainerClient.from_connection_string(conn_string,container_name="youtube")
+    container_client.upload_blob(f"files/ChannelDetails_{datetime}.json",data=json.dumps(json_channeldetails))
+    container_client.upload_blob(f"files/VideoIdDetails_{datetime}.json",data=json.dumps(json_videos_df))
+    #print(json.dumps(json_response, indent=4, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
