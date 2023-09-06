@@ -1,0 +1,44 @@
+create database youtube;
+use youtube;
+
+create notification integration SNOWPIPE_DEMO_NOTIFICATION_INT
+enabled = true
+type = queue
+notification_provider = azure_storage_queue
+azure_storage_queue_primary_uri = 'https://snowpipeaccount143s.queue.core.windows.net/snowpipeyoutubeinputqueue'
+azure_tenant_id = '__Enter Azure tenant id__';
+
+desc integration SNOWPIPE_DEMO_NOTIFICATION_INT;
+
+CREATE STORAGE INTEGRATION SNOWPIPE_DEMO_INT
+TYPE = EXTERNAL_STAGE
+STORAGE_PROVIDER = AZURE
+ENABLED = TRUE
+AZURE_TENANT_ID = '__Enter Azure tenant id__'
+STORAGE_ALLOWED_LOCATIONS =('azure://snowpipeaccount143s.blob.core.windows.net/youtube/')
+
+desc INTEGRATION SNOWPIPE_DEMO_INT;
+
+CREATE stage youtube.public.mystage
+url = 'azure://snowpipeaccount143s.blob.core.windows.net/youtube/files/'
+storage_integration = SNOWPIPE_DEMO_INT;
+
+CREATE TABLE youtube.public.dummy(input variant)
+
+CREATE PIPE youtube.public.mypipe
+auto_ingest = true
+integration = 'SNOWPIPE_DEMO_NOTIFICATION_INT'
+as 
+copy into youtube.public.dummy
+from @youtube.public.mystage
+file_format = (type = 'JSON');
+
+show pipes;
+
+desc pipe mypipe;
+
+SELECT SYSTEM$PIPE_STATUS('mypipe');
+select * from youtube.public.dummy;
+select * from dummy;
+list@youtube.public.mystage;
+
