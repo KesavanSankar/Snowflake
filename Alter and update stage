@@ -1,0 +1,65 @@
+ALTER TABLE youtube.public.dummy ADD  Channel_id_ STRING; 
+ALTER TABLE youtube.public.dummy ADD  Channel_name_ STRING; 
+ALTER TABLE youtube.public.dummy ADD  Channel_subscribers_ INT;
+
+-------------------------------------------------------
+
+UPDATE youtube.public.dummy
+SET
+  Channel_id_ = PARSE_JSON(Input)[0]:Channel_id::STRING,
+  Channel_name_ = PARSE_JSON(Input)[0]:Channel_name::STRING,
+  Channel_subscribers_ = PARSE_JSON(Input)[0]:Channel_subscribers::INT;
+ 
+SELECT
+  PARSE_JSON(input)[0]:Channel_id AS channel_id,
+  PARSE_JSON(input)[0]:Channel_name AS channel_name,
+  PARSE_JSON(input)[0]:Channel_subscribers AS channel_subscribers
+FROM dummy;
+
+select parse_json(input)[0] from dummy;
+-----------------------------------------------------------------------
+
+-- Create new columns for extracted data
+ALTER TABLE youtube.public.dummy ADD  video_id STRING;
+ALTER TABLE youtube.public.dummy ADD  channelTitle STRING;
+ALTER TABLE youtube.public.dummy ADD  title STRING;
+ALTER TABLE youtube.public.dummy ADD  description STRING;
+ALTER TABLE youtube.public.dummy ADD  publishedAt STRING;
+ALTER TABLE youtube.public.dummy ADD  viewCount INT;
+ALTER TABLE youtube.public.dummy ADD  likeCount INT;
+ALTER TABLE youtube.public.dummy ADD  commentCount INT;
+ALTER TABLE youtube.public.dummy ADD  Published_Year INT;
+ALTER TABLE youtube.public.dummy ADD  Published_Month STRING;
+
+-- Update the new columns with extracted data
+UPDATE youtube.public.dummy
+SET
+  video_id = PARSE_JSON(Input)[0]:video_id,
+  channelTitle = PARSE_JSON(Input)[0]:channelTitle,
+  title = PARSE_JSON(Input)[0]:title,
+  description = PARSE_JSON(Input)[0]:description,
+  publishedAt = PARSE_JSON(Input)[0]:publishedAt,
+  viewCount = PARSE_JSON(Input)[0]:viewCount,
+  likeCount = PARSE_JSON(Input)[0]:likeCount,
+  commentCount = PARSE_JSON(Input)[0]:commentCount,
+  Published_Year = PARSE_JSON(Input)[0]:Published_Year,
+  Published_Month = PARSE_JSON(Input)[0]:Published_Month;
+
+select * from dummy;
+
+UPDATE youtube.public.dummy
+SET
+  video_id = PARSE_JSON(Input)[1]:video_id,
+  channelTitle = PARSE_JSON(Input)[1]:channelTitle,
+  title = PARSE_JSON(Input)[1]:title,
+  description = PARSE_JSON(Input)[1]:description,
+  publishedAt = PARSE_JSON(Input)[1]:publishedAt,
+  viewCount = PARSE_JSON(Input)[1]:viewCount,
+  likeCount = PARSE_JSON(Input)[1]:likeCount,
+  commentCount = PARSE_JSON(Input)[1]:commentCount,
+  Published_Year = PARSE_JSON(Input)[1]:Published_Year,
+  Published_Month = PARSE_JSON(Input)[1]:Published_Month;
+
+
+select * from dummy;
+-----------------------------------------
