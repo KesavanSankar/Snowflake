@@ -1,0 +1,63 @@
+
+SELECT
+  t.value::STRING AS extracted_value
+FROM dummy,
+  LATERAL FLATTEN(input => PARSE_JSON(Input)) AS t;
+
+
+select PARSE_JSON(extracted_value.Published_Month) from temp_exploded_data;
+
+select typeof(row_number) from exploded_data;
+select * from exploded_data;
+DESC TABLE Exploded_data;
+
+CREATE OR REPLACE TABLE Channel_details AS 
+SELECT
+        TO_TIMESTAMP_NTZ(PARSE_JSON(EXTRACTED_VALUE):"Channel_Published_Date"::NUMBER/1000) AS Channel_Published_Date,
+        REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Channel_description",'""','') AS Channel_description,
+        REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Channel_id",'""','') AS Channel_id,
+        REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Channel_name",'""','') AS Channel_name,
+        PARSE_JSON(EXTRACTED_VALUE):"Channel_subscribers"::NUMBER AS Channel_subscribers,
+        PARSE_JSON(EXTRACTED_VALUE):"Channel_view_Count"::NUMBER AS Channel_view_Count,
+        PARSE_JSON(EXTRACTED_VALUE):"channel_Video_Count"::NUMBER AS channel_Video_Count
+FROM exploded_data;
+
+SELECT * FROM Channel_details;
+
+DELETE FROM Channel_details  WHERE Channel_id IS NULL;
+
+CREATE OR REPLACE TABLE video_details AS 
+SELECT 
+    CASE 
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Jan' THEN 'January'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Feb' THEN 'February'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Mar' THEN 'March'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Apr' THEN 'April'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'May' THEN 'May'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Jun' THEN 'June'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Jul' THEN 'July'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Aug' THEN 'August'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Sep' THEN 'September'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Oct' THEN 'October'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Nov' THEN 'November'
+        WHEN REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '') = 'Dec' THEN 'December'
+        ELSE REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"Published_Month", '"', '')
+    END AS Published_Month,
+    (PARSE_JSON(EXTRACTED_VALUE):"Published_Year"::STRING) AS Published_Year,
+    REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"channelTitle",'""','') AS channelTitle,
+    PARSE_JSON(EXTRACTED_VALUE):"commentCount"::INT AS commentCount,
+    REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"description",'""','') AS description,
+    PARSE_JSON(EXTRACTED_VALUE):"likeCount"::INT AS likeCount,
+    TO_TIMESTAMP_NTZ(PARSE_JSON(EXTRACTED_VALUE):"publishedAt"::NUMBER / 1000) AS publishedAt,
+    REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"title",'""','') AS title,
+    REGEXP_REPLACE(PARSE_JSON(EXTRACTED_VALUE):"video_id",'""','') AS video_id,
+    PARSE_JSON(EXTRACTED_VALUE):"viewCount"::INT AS viewCount
+FROM exploded_data ORDER BY publishedAt ASC;
+
+DELETE FROM video_details WHERE video_id IS NULL;
+
+DESC TABLE video_details;
+
+SELECT * FROM video_details ;
+
+SELECT  REGEXP_REPLACE(Published_month, '"', '') FROM video_details;
