@@ -1,0 +1,703 @@
+import os
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
+
+API_KEY = os.getenv("API_KEY", "YOUTUBE API HERE")
+region_code='IN'
+URL = os.getenv("URL", f"https://www.googleapis.com/youtube/v3/videos?key={API_KEY}&part=snippet&chart=mostPopular&maxResults=50&regionCode={region_code}")
+
+#URL = f'https://www.googleapis.com/youtube/v3/videos?key={API_KEY}&part=snippet&chart=mostPopular&maxResults=50&regionCode={region_code}'
+DATADIR = os.getenv("DATADIR", "data")
+
+"""Exceptions module."""
+
+
+class YoutubeError(Exception):
+    """Base class for all exceptions occur in the app."""
+    pass
+
+
+class ReadError(YoutubeError):
+    """Error while retrieving items from YouTube"""
+    pass
+
+
+
+"""Module for logger."""
+import logging
+import sys
+
+
+def setup_logging(log_level="INFO", **kwargs):
+    """Setup logging.
+
+    Args:
+        log_level (str): Logging level.
+    """
+    log_format = (
+        '%(asctime)s '
+        '%(name)s '
+        '[%(levelname)s] '
+        '%(message)s'
+    )
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+
+    logging.basicConfig(format=log_format,
+                        level=log_level,
+                        handlers=[stdout_handler, stderr_handler])
+
+"""Module for logger."""
+import logging
+import sys
+
+
+def setup_logging(log_level="INFO", **kwargs):
+    """Setup logging.
+
+    Args:
+        log_level (str): Logging level.
+    """
+    log_format = (
+        '%(asctime)s '
+        '%(name)s '
+        '[%(levelname)s] '
+        '%(message)s'
+    )
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+
+    logging.basicConfig(format=log_format,
+                        level=log_level,
+                        handlers=[stdout_handler, stderr_handler])
+
+"""Module consists of utility functions."""
+import os
+
+import pandas as pd
+
+
+def save_to_csv(data: pd.DataFrame, filename: str = "trending.csv"):
+    """Save data as csv in the given datadir.
+
+    Create the directory (and intermediate dirs) if it
+    doesn't exist yet. If the file has been created,
+    then append it.
+
+    Args:
+        data (pd.DataFrame): data to be saved.
+        filename (str): directory and the name of the file.
+            Default is to save as `trending.csv` in current dir.
+
+    Return:
+        None
+    """
+    if not os.path.isdir(filename.split("/")[-2]):
+        os.makedirs(filename.split("/")[-2])
+
+    if not os.path.exists(filename):
+        data.to_csv(filename, index=False)
+        return
+
+    data.to_csv(filename, index=False, header=False, mode="a")
+    return
+
+"""Module for representing a video."""
+from dataclasses import dataclass
+from typing import Dict
+
+
+@dataclass
+class Video:
+    """Video resource instance."""
+    id: str
+    snippet: Dict[str, str]
+    content_detail: Dict[str, str]
+    statistic: Dict[str, int]
+
+    def to_dict(self, **kwargs):
+        """Convert video instance to dictionary."""
+        snippet = {
+            "publish_time": self.snippet.get("publishedAt"),
+            "channel_id": self.snippet.get("channelId"),
+            "title": self.snippet.get("title"),
+            "description": self.snippet.get("description"),
+            "thumbnail_url": self.snippet.get(
+                "thumbnails", {}).get("high").get("url"),
+            "thumbnail_width": self.snippet.get(
+                "thumbnails", {}).get("high").get("width"),
+            "thumbnail_height": self.snippet.get(
+                "thumbnails", {}).get("high").get("height"),
+            "channel_name": self.snippet.get("channelTitle"),
+            "tags": self.snippet.get("tags"),
+            "category_id": int(self.snippet.get("categoryId", 0)),
+            "live_status": self.snippet.get(
+                "liveBroadcastContent"),
+            "local_title": self.snippet.get(
+                "localized", {}).get("title"),
+            "local_description": self.snippet.get(
+                "localized", {}).get("description"),
+        }
+        content = {
+            "duration": self.content_detail.get("duration"),
+            "dimension": self.content_detail.get("dimension"),
+            "definition": self.content_detail.get(
+                "definition"),
+            "caption": self.content_detail.get("caption"),
+            "license_status": self.content_detail.get(
+                "licensedContent"),
+            "allowed_region": self.content_detail.get(
+                "regionRestriction", {}).get("allowed"),
+            "blocked_region": self.content_detail.get(
+                "regionRestriction", {}).get("blocked"),
+        }
+        statistic = {
+            "view": self.statistic.get("viewCount"),
+            "like": self.statistic.get("likeCount"),
+            "dislike": self.statistic.get("dislikeCount"),
+            "favorite": self.statistic.get("favoriteCount"),
+            "comment": self.statistic.get("commentCount")
+        }
+        video_id = {"video_id": self.id}
+
+        return dict(**video_id, **snippet, **content, **statistic, **kwargs)
+import logging
+from dataclasses import dataclass
+from typing import Any, Dict, List
+
+import requests
+from requests.exceptions import RequestException
+
+#from common.video import Video
+#from ytid.exceptions import ReadError
+
+
+_LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class YouTube:
+    """YouTube Data API.
+
+    Attributes:
+        url (str): url for youtube API.
+        api_key (str): API key.
+    """
+    url: str
+    api_key: str
+
+    def _get(self, payload: Dict[str, Any]):
+        try:
+            res = requests.get(self.url, params=payload)
+            res.raise_for_status()
+        except RequestException:
+            raise ReadError(
+                "Error while retrieving based on payload: {}".format(payload)
+            )
+        else:
+            return res.json()
+
+    def get_trendings(self, region_code: str = "IN",
+                      result_per_page: int = 50) -> List[Video]:
+        """Retrieves most popular (trending) videos based on
+        specified parameters.
+
+        Args:
+            region_code (str): region where the trendings will be retrieved.
+                The value follows ISO 3166-1 alpha-2 country code. By default
+                will retrieve trending from Indonesia.
+            result_per_page (int): maximum number of items that should be returned
+                in the result. 50 is the default value.
+
+        Returns:
+            List[Video]: List of trending videos.
+        """
+        payload = {
+            "key": self.api_key,
+            "chart": "mostPopular",
+            "part": "snippet,contentDetails,statistics",
+            "regionCode": region_code,
+            "maxResults": result_per_page,
+        }
+
+        response = self._get(payload)
+        videos = response.get("items")
+        _LOGGER.debug("Got %d videos from youtube", len(videos))
+
+        cursor = response.get("nextPageToken")
+        while cursor:
+            payload["pageToken"] = cursor
+            response = self._get(payload)
+            cursor = response.get("nextPageToken")
+            videos.extend(response.get("items"))
+            _LOGGER.debug("Got %d videos", len(videos))
+
+        videos = [
+            Video(
+                id=video.get("id"),
+                snippet=video.get("snippet"),
+                content_detail=video.get("contentDetails"),
+                statistic=video.get("statistics")
+            )
+            for video in videos
+        ]
+
+        return videos
+"""Worker to extract India Trending YouTube Video Statistics."""
+import logging
+from datetime import datetime
+from pathlib import Path
+from time import time
+#pip install common
+import pandas as pd
+import pytz
+
+#from common.utils import save_to_csv
+# from ytid import config, YouTube
+# from ytid.logger import setup_logging
+
+
+_LOGGER = logging.getLogger("main")
+
+
+def main():
+    _LOGGER.info("Start retrieving indonesia youtube trending videos")
+    now = datetime.now(tz=pytz.utc)
+    dataset_version = datetime.now(tz=pytz.timezone("Asia/Kolkata"))
+    dataset_version = dataset_version.strftime("%Y%m%d.%H%M")
+
+    youtube = YouTube(
+        url=URL,
+        api_key=API_KEY
+    )
+    start = time()
+    videos = youtube.get_trendings()
+    end = time()
+    _LOGGER.debug("Done retrieving raw video data in %.3fs",
+                  (end - start))
+
+    df_videos = pd.DataFrame([
+        video.to_dict(trending_time=now)
+        for video in videos
+    ])
+    _LOGGER.info("Got total %d trending videos", df_videos.shape[0])
+
+    filename = Path(DATADIR) / f"trending_{dataset_version}.csv"
+    save_to_csv(df_videos, filename.as_posix())
+    df_saved = pd.read_csv(filename)
+    _LOGGER.info("Done saving %d trending videos (%s). Total videos: %d",
+                 df_videos.shape[0], filename, df_saved.shape[0])
+
+
+if __name__ == "__main__":
+    setup_logging(LOG_LEVEL)
+    main()
+
+"""Script to check last retrieval trendings in trending.csv"""
+import os
+import logging
+from datetime import datetime
+import pandas as pd
+
+# from ytid import config as c
+# from ytid.exceptions import ReadError
+# from ytid.logger import setup_logging
+
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def main():
+    now = datetime.now(tz=pytz.utc)
+    dataset_version = datetime.now(tz=pytz.timezone("Asia/Kolkata"))
+    dataset_version = dataset_version.strftime("%Y%m%d.%H%M")
+
+    filename = Path(DATADIR) / f"trending_{dataset_version}.csv"
+    if not os.path.exists(filename):
+        raise ReadError("File not found: %s" % filename)
+    df = pd.read_csv(filename, parse_dates=[-1])
+    _LOGGER.info("Loaded data: %s", filename)
+
+    last_5_dates = df.trending_time.dt.date.unique()[-5:]
+    last_5_dates = [
+        date.strftime("%Y%m%d")
+        for date in last_5_dates
+    ]
+    _LOGGER.info("Last 5 retrieval dates: %s", ", ".join(last_5_dates))
+
+
+if __name__ == "__main__":
+    setup_logging()
+    main()
+
+import pandas as pd
+
+data = {
+  
+      "kind": "youtube#videoCategoryListResponse",
+      "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/1v2mrzYSYG6onNLt2qTj13hkQZk\"",
+      "items": [
+                    {
+                    "kind": "youtube#videoCategory",
+                    "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/Xy1mB4_yLrHy_BmKmPBggty2mZQ\"",
+                    "id": "1",
+                    "snippet": 
+                     {
+                      "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                      "title": "Film & Animation",
+                      "assignable": True
+                    }
+              },
+                    {
+                    "kind": "youtube#videoCategory",
+                    "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/UZ1oLIIz2dxIhO45ZTFR3a3NyTA\"",
+                    "id": "2",
+                    "snippet": 
+                     {
+                      "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                      "title": "Autos & Vehicles",
+                      "assignable": True
+                    }
+                    },
+                    {
+                    "kind": "youtube#videoCategory",
+                    "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/nqRIq97-xe5XRZTxbknKFVe5Lmg\"",
+                    "id": "10",
+                    "snippet": 
+                      {
+                      "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                      "title": "Music",
+                      "assignable": True
+                    }
+                    },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/HwXKamM1Q20q9BN-oBJavSGkfDI\"",
+                  "id": "15",
+                  "snippet":
+                  {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Pets & Animals",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/9GQMSRjrZdHeb1OEM1XVQ9zbGec\"",
+                  "id": "17",
+                  "snippet": {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Sports",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/FJwVpGCVZ1yiJrqZbpqe68Sy_OE\"",
+                  "id": "18",
+                  "snippet": {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Short Movies",
+                    "assignable": False
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/M-3iD9dwK7YJCafRf_DkLN8CouA\"",
+                  "id": "19",
+                  "snippet": 
+                   {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Travel & Events",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/WmA0qYEfjWsAoyJFSw2zinhn2wM\"",
+                  "id": "20",
+                  "snippet": 
+                   {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Gaming",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/EapFaGYG7K0StIXVf8aba249tdM\"",
+                  "id": "21",
+                  "snippet":
+                  {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Videoblogging",
+                    "assignable": False
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/xId8RX7vRN8rqkbYZbNIytUQDRo\"",
+                  "id": "22",
+                  "snippet":
+                  {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "People & Blogs",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/G9LHzQmx44rX2S5yaga_Aqtwz8M\"",
+                  "id": "23",
+                  "snippet": 
+                   {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Comedy",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/UVB9oxX2Bvqa_w_y3vXSLVK5E_s\"",
+                  "id": "24",
+                  "snippet": 
+                   {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Entertainment",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/QiLK0ZIrFoORdk_g2l_XR_ECjDc\"",
+                  "id": "25",
+                  "snippet": 
+                   {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "News & Politics",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/r6Ck6Z0_L0rG37VJQR200SGNA_w\"",
+                  "id": "26",
+                  "snippet": 
+                   {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Howto & Style",
+                    "assignable": True
+                  }
+                  },
+                  {
+                  "kind": "youtube#videoCategory",
+                  "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/EoYkczo9I3RCf96RveKTOgOPkUM\"",
+                  "id": "27",
+                  "snippet": {
+                    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+                    "title": "Education",
+                    "assignable": True
+                  }
+                  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/w5HjcTD82G_XA3xBctS30zS-JpQ\"",
+   "id": "28",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Science & Technology",
+    "assignable": True
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/lL7uWDr_071CHxifjYG1tJrp4Uo\"",
+   "id": "30",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Movies",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/WnuVfjO-PyFLO7NTRQIbrGE62nk\"",
+   "id": "31",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Anime/Animation",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/ctpH2hGA_UZ3volJT_FTlOg9M00\"",
+   "id": "32",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Action/Adventure",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/L0kR3-g1BAo5UD1PLVbQ7LkkDtQ\"",
+   "id": "33",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Classics",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/pUZOAC_s9sfiwar639qr_wAB-aI\"",
+   "id": "34",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Comedy",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/Xb5JLhtyNRN3AQq021Ds-OV50Jk\"",
+   "id": "35",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Documentary",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/u8WXzF4HIhtEi805__sqjuA4lEk\"",
+   "id": "36",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Drama",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/D04PP4Gr7wc4IV_O9G66Z4A8KWQ\"",
+   "id": "37",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Family",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/i5-_AceGXQCEEMWU0V8CcQm_vLQ\"",
+   "id": "38",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Foreign",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/rtlxd0zOixA9QHdIZB26-St5qgQ\"",
+   "id": "39",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Horror",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/N1TrDFLRppxZgBowCJfJCvh0Dpg\"",
+   "id": "40",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Sci-Fi/Fantasy",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/7UMGi6zRySqXopr_rv4sZq6Za2E\"",
+   "id": "41",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Thriller",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/RScXhi324h8usyIetreAVb-uKeM\"",
+   "id": "42",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Shorts",
+    "assignable": False
+   }
+  },
+  {
+   "kind": "youtube#videoCategory",
+   "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/0n9MJVCDLpA8q7aiGVrFsuFsd0A\"",
+   "id": "43",
+   "snippet": {
+    "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+    "title": "Shows",
+    "assignable": False
+   }
+  },
+    {
+    "kind": "youtube#videoCategory",
+    "etag": "\"XI7nbFXulYBIpL0ayR_gDh3eu1k/x5NxSf5fz8hn4loSN4rvhwzD_pY\"",
+    "id": "44",
+    "snippet": {
+      "channelId": "UCBR8-60-B28hp2BmDPdntcQ",
+      "title": "Trailers",
+      "assignable": False
+    }
+    }
+ ]
+}
+
+
+items_list = data["items"]
+
+# Create a list to store processed items
+processed_items = []
+
+# Process each item in the "items" list
+for item in items_list:
+    item_data = {
+        "kind": item.get("kind"),
+        "etag": item.get("etag"),
+        "id": item.get("id"),
+        "channelId": item["snippet"]["channelId"],
+        "title": item["snippet"]["title"],
+        "assignable": item["snippet"]["assignable"],
+    }
+    processed_items.append(item_data)
+
+# Create a DataFrame from the processed items
+df = pd.DataFrame(processed_items)
+
+# Display the DataFrame
+print(df)
+
+
+df.to_csv("youtube_video_categories.csv", index=False)
+
+
+
